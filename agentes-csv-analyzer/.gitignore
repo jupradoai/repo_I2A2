@@ -1,0 +1,35 @@
+# Ambiente virtual
+venv/
+env/
+ENV/
+
+# Arquivos de configuração
+.env
+.env.*
+!.env.example
+
+# Cache do Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Arquivos do VS Code/Cursor
+.vscode/
+.cursor/
+.cursor.json
+
+# Arquivos temporários
+*.log
+*.csv
+*.zip
+temp/
+data/
+
+# Arquivos do sistema
+.DS_Store
+Thumbs.db
+
+# Regras e documentação específica
+rules/
+*.rules
+*.rule 
