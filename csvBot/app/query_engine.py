@@ -3,6 +3,11 @@ from typing import Dict, Any, List
 import re
 import ast
 import json
+import logging
+
+# Configuração do logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 class QueryEngine:
     def __init__(self):
@@ -25,6 +30,9 @@ class QueryEngine:
         Interpreta a resposta estruturada do modelo
         """
         try:
+            logger.info("Analisando resposta do modelo:")
+            logger.info(f"Texto recebido:\n{analysis_text}")
+            
             # Procura por seções específicas na resposta
             sections = {
                 'dataframes': self._extract_section(analysis_text, "DataFrames necessários"),
@@ -33,20 +41,25 @@ class QueryEngine:
                 'format': self._extract_section(analysis_text, "Formatação")
             }
             
+            logger.info("Seções extraídas:")
+            for key, value in sections.items():
+                logger.info(f"{key}: {value}")
+            
             return sections
         except Exception as e:
+            logger.error(f"Erro ao interpretar análise: {str(e)}")
             raise ValueError(f"Erro ao interpretar análise: {str(e)}")
 
     def _extract_section(self, text: str, section_name: str) -> str:
         """
         Extrai uma seção específica da resposta do modelo
         """
-        pattern = f"{section_name}.*?(?=(?:[1-4]\.|$))"
+        pattern = f"{section_name}.*?(?=(?:[1-4]\\.|$))"
         match = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
         if match:
             content = match.group(0)
             # Remove o nome da seção e limpa o texto
-            content = re.sub(f"{section_name}[:\s]*", "", content, flags=re.IGNORECASE)
+            content = re.sub(f"{section_name}[:\\s]*", "", content, flags=re.IGNORECASE)
             return content.strip()
         return ""
 
@@ -61,53 +74,77 @@ class QueryEngine:
                 **dataframes
             }
 
-            # Obtém o código pandas da análise
-            code = parsed_analysis.get('code', '')
+            # Obtém o código pandas da análise e limpa marcadores markdown
+            code = parsed_analysis.get('code', '').strip()
+            # Remove marcadores markdown
+            code = re.sub(r'```\w*\n?', '', code)
+            code = code.strip()
+            
+            logger.info(f"Código limpo para execução: {code}")
+            
             if not code:
                 raise ValueError("Código pandas não encontrado na análise")
 
-            # Executa o código de forma segura
-            result = self._safe_execute(code, local_vars)
+            # Verifica se é uma operação simples
+            if '\n' in code or ';' in code:
+                raise ValueError("Apenas uma operação simples por vez é permitida")
 
-            # Formata o resultado conforme especificado
-            return self._format_result(result, parsed_analysis.get('format', ''))
+            # Verifica operações não permitidas
+            if 'pd.DataFrame' in code or 'pd.concat' in code or 'merge' in code:
+                raise ValueError("Operações complexas não são permitidas")
+
+            # Executa o código
+            try:
+                ast.parse(code)
+                logger.info(f"Executando código: {code}")
+                result = eval(code, self._get_safe_exec_env(local_vars))
+                logger.info("Código executado com sucesso")
+            except Exception as e:
+                logger.error(f"Erro ao executar código: {str(e)}")
+                raise
+
+            # Formata o resultado
+            formatted_result = self._format_result(result, parsed_analysis.get('format', ''))
+            logger.info("Resultado formatado com sucesso")
+            
+            return formatted_result
 
         except Exception as e:
+            logger.error(f"Erro ao executar consulta: {str(e)}")
+            logger.error(f"Análise completa: {parsed_analysis}")
             raise RuntimeError(f"Erro ao executar consulta: {str(e)}")
 
-    def _safe_execute(self, code: str, local_vars: Dict[str, Any]) -> Any:
+    def _get_safe_exec_env(self, local_vars: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Executa o código pandas de forma segura
+        Cria um ambiente de execução seguro com funções permitidas
         """
-        # Lista de operações permitidas
-        allowed_ops = set(self.available_operations.keys())
-
-        # Verifica se o código contém apenas operações permitidas
-        tree = ast.parse(code)
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Call):
-                if isinstance(node.func, ast.Attribute):
-                    if node.func.attr not in allowed_ops:
-                        raise ValueError(f"Operação não permitida: {node.func.attr}")
-
-        # Executa o código
-        return eval(code, {"__builtins__": {}}, local_vars)
+        safe_builtins = {
+            'len': len,
+            'round': round
+        }
+        
+        return {
+            "__builtins__": safe_builtins,
+            **local_vars
+        }
 
     def _format_result(self, result: Any, format_instructions: str) -> str:
         """
         Formata o resultado conforme as instruções
         """
-        if isinstance(result, pd.DataFrame):
-            # Se for um DataFrame, converte para uma tabela formatada
-            return result.to_string()
-        elif isinstance(result, pd.Series):
-            # Se for uma Series, converte para uma lista formatada
-            return result.to_string()
-        elif isinstance(result, (float, int)):
-            # Se for um número, formata com 2 casas decimais
-            return f"{result:.2f}"
-        else:
-            # Para outros tipos, converte para string
+        try:
+            if isinstance(result, pd.DataFrame):
+                return result.to_string(index=True, float_format=lambda x: '{:,.2f}'.format(x) if isinstance(x, float) else str(x))
+            elif isinstance(result, pd.Series):
+                if result.dtype in ['float64', 'float32']:
+                    return result.apply(lambda x: '{:,.2f}'.format(x)).to_string()
+                return result.to_string()
+            elif isinstance(result, (float, int)):
+                return '{:,.2f}'.format(float(result))
+            else:
+                return str(result)
+        except Exception as e:
+            logger.error(f"Erro ao formatar resultado: {str(e)}")
             return str(result)
 
     def validate_query(self, query: str, dataframes: Dict[str, pd.DataFrame]) -> bool:

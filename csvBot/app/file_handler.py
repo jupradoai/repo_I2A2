@@ -2,6 +2,9 @@ import os
 import zipfile
 import pandas as pd
 from typing import Dict, List, Tuple
+import logging
+
+logger = logging.getLogger(__name__)
 
 class FileHandler:
     def __init__(self):
@@ -39,19 +42,38 @@ class FileHandler:
 
     def _process_csv_file(self, file_path: str) -> Tuple[bool, str]:
         """
-        Processa um arquivo CSV individual
+        Processa um arquivo CSV individual conforme especificações:
+        - Campos separados por vírgulas
+        - Decimais com ponto
+        - Datas no formato AAAA-MM-DD HH:MN:SS
         """
         try:
             # Gera um nome adequado para o DataFrame
             df_name = "df_" + os.path.basename(file_path).replace('.csv', '').replace('-', '_')
             
-            # Lê o CSV com as configurações especificadas
+            # Lê o CSV com as configurações específicas
             df = pd.read_csv(
                 file_path,
                 sep=',',
                 decimal='.',
-                parse_dates=True
+                dtype={
+                    'VALOR NOTA FISCAL': float,
+                    'VALOR TOTAL': float,
+                    'UF EMITENTE': str,
+                    'MODELO': str,
+                    'RAZÃO SOCIAL EMITENTE': str,
+                    'NOME DESTINATÁRIO': str,
+                    'DESCRIÇÃO DO PRODUTO/SERVIÇO': str
+                }
             )
+
+            # Converte colunas de data usando o formato específico
+            date_columns = [col for col in df.columns if 'DATA' in col.upper()]
+            for col in date_columns:
+                try:
+                    df[col] = pd.to_datetime(df[col], format='%Y-%m-%d %H:%M:%S')
+                except:
+                    logger.warning(f"Não foi possível converter a coluna {col} para datetime")
 
             # Armazena o DataFrame no dicionário
             self.dataframes[df_name] = df
