@@ -1,0 +1,27 @@
+# Arquivos de ambiente
+.env
+
+# Cache do Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Ambiente virtual
+venv/
+env/
+ENV/
+
+# Arquivos do Streamlit
+.streamlit/
+
+# Arquivos temporários
+*.csv
+*.zip
+temp/
+
+# Logs
+*.log
+
+# Arquivos do sistema
+.DS_Store
+Thumbs.db 
